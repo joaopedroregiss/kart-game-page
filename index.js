@@ -30,9 +30,9 @@ const httpsServer = https.createServer({ key, cert }, (req, res) => {
   }
 
   // Página do controle
-  if (req.method === "GET" && (req.url === "/" || req.url === "/index.html" || req.url === "/controller.html")) {
+  if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    return res.end(fs.readFileSync("controller.html"));
+    return res.end(fs.readFileSync("index.html"));
   }
 
   // Recebe os dados do celular
