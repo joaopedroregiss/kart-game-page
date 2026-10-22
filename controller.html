@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Controle Kart - Teste do Giroscópio</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+      background: #111;
+      color: #fff;
+      font-family: sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+
+    button {
+      border: 0;
+      border-radius: 16px;
+      color: #fff;
+      font-size: 1.3rem;
+      margin: 8px;
+    }
+
+    .pedal {
+      flex: 1;
+    }
+
+    #brake {
+      background: #c0392b;
+    }
+
+    #gas {
+      background: #2e9e4f;
+    }
+
+    #start {
+      position: fixed;
+      inset: 0;
+      margin: 0;
+      border-radius: 0;
+      background: #222;
+      font-size: 1.6rem;
+      z-index: 10;
+    }
+
+    #panel {
+      flex: 2;
+      min-width: 0;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+
+    #status {
+      display: flex;
+      gap: 14px;
+      font-size: .8rem;
+    }
+
+    .ok {
+      color: #5fd38d;
+    }
+
+    .bad {
+      color: #ff7b6b;
+    }
+
+    .wait {
+      color: #f5c451;
+    }
+
+    #dir {
+      font-size: 1.3rem;
+      font-weight: bold;
+      height: 1.6rem;
+    }
+
+    #wheel {
+      width: min(30vh, 34vw);
+      height: min(30vh, 34vw);
+    }
+
+    #bar {
+      position: relative;
+      width: 80%;
+      height: 12px;
+      background: #333;
+      border-radius: 6px;
+    }
+
+    #barMid {
+      position: absolute;
+      left: 50%;
+      top: -2px;
+      width: 2px;
+      height: 16px;
+      background: #888;
+    }
+
+    #barMark {
+      position: absolute;
+      top: -3px;
+      width: 18px;
+      height: 18px;
+      margin-left: -9px;
+      border-radius: 50%;
+      background: #f5c451;
+      left: 50%;
+    }
+
+    #values {
+      font-family: monospace;
+      font-size: .72rem;
+      text-align: center;
+      line-height: 1.35;
+      color: #ccc;
+    }
+
+    #row {
+      display: flex;
+      gap: 8px;
+    }
+
+    #row button {
+      margin: 0;
+      padding: 8px 12px;
+      font-size: .85rem;
+      background: #444;
+      border-radius: 10px;
+    }
+
+    #hint {
+      font-size: .72rem;
+      color: #f5c451;
+      text-align: center;
+      min-height: 1em;
+    }
+  </style>
+</head>
+
+<body>
+
+  <button id="start">Toque para conectar e testar o giroscópio</button>
+
+  <button id="brake" class="pedal">FREIO</button>
+
+  <div id="panel">
+    <div id="status">
+      <span id="stSensor" class="wait">Sensor: -</span>
+      <span id="stSrv" class="wait">Servidor: -</span>
+    </div>
+    <div id="dir">RETO</div>
+
+    <svg id="wheel" viewBox="-60 -60 120 120">
+      <g id="wheelRot">
+        <circle r="50" fill="none" stroke="#888" stroke-width="8" />
+        <line x1="-50" y1="0" x2="50" y2="0" stroke="#888" stroke-width="6" />
+        <line x1="0" y1="0" x2="0" y2="50" stroke="#888" stroke-width="6" />
+        <circle cx="0" cy="-50" r="6" fill="#f5c451" />
+      </g>
+    </svg>
+
+    <div id="bar">
+      <div id="barMid"></div>
+      <div id="barMark"></div>
+    </div>
+
+    <div id="values">
+      <div id="vAccel">aceleração: -</div>
+      <div id="vGyro">giroscópio: -</div>
+      <div id="vAngle">ângulo: -</div>
+    </div>
+
+    <div id="row">
+      <button id="center">CENTRAR</button>
+      <button id="invert">INVERTER: NÃO</button>
+    </div>
+    <div id="hint"></div>
+  </div>
+
+  <button id="gas" class="pedal">ACELERAR</button>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const pid = Math.random().toString(36).slice(2, 8);
+
+    let steer = 0, gas = false, brake = false;
+    let angle = 0, offset = 0, invert = false;
+    let accel = {x: 0, y: 0, z: 0};
+    let rot = {alpha: 0, beta: 0, gamma: 0};
+    let lastMotion = 0, startTime = 0, started = false;
+    let server = "wait", busy = false;
+
+    function hold(id, setter) {
+      const el = $(id);
+      el.addEventListener("pointerdown", (e) => {e.preventDefault(); setter(true);});
+      ["pointerup", "pointercancel", "pointerleave"].forEach((ev) =>
+        el.addEventListener(ev, () => setter(false)));
+    }
+    hold("gas", (v) => gas = v);
+    hold("brake", (v) => brake = v);
+
+    $("center").addEventListener("click", () => {offset = angle;});
+    $("invert").addEventListener("click", () => {
+      invert = !invert;
+      $("invert").textContent = "INVERTER: " + (invert ? "SIM" : "NÃO");
+    });
+
+    $("start").addEventListener("click", async () => {
+      if (typeof DeviceMotionEvent !== "undefined" &&
+        typeof DeviceMotionEvent.requestPermission === "function") {
+        const r = await DeviceMotionEvent.requestPermission();
+        if (r !== "granted") return alert("Permissão negada");
+      }
+      window.addEventListener("devicemotion", onMotion);
+      try {navigator.wakeLock.request("screen");} catch (e) { }
+      $("start").style.display = "none";
+      started = true;
+      startTime = performance.now();
+      setInterval(send, 33);
+    });
+
+    function onMotion(e) {
+      lastMotion = performance.now();
+      if (e.rotationRate) {
+        rot = {
+          alpha: e.rotationRate.alpha || 0,
+          beta: e.rotationRate.beta || 0,
+          gamma: e.rotationRate.gamma || 0,
+        };
+      }
+      const g = e.accelerationIncludingGravity;
+      if (!g || g.x == null || g.y == null) return;
+      accel = {x: g.x, y: g.y, z: g.z || 0};
+
+      angle = Math.atan2(-g.y * Math.sign(g.x), Math.abs(g.x)) * 180 / Math.PI;
+      let s = (angle - offset) / 45;
+      if (invert) s = -s;
+      steer = Math.max(-1, Math.min(1, s));
+    }
+
+    async function send() {
+      if (busy) return;
+      busy = true;
+      try {
+        const r = await fetch("/input", {
+          method: "POST",
+          body: JSON.stringify({pid, steer, gas, brake}),
+        });
+        server = r.ok ? "ok" : "bad";
+      } catch (e) {
+        server = "bad";
+      }
+      busy = false;
+    }
+
+    function setStatus(id, cls, text) {
+      const el = $(id);
+      el.className = cls;
+      el.textContent = text;
+    }
+
+    function render() {
+      requestAnimationFrame(render);
+      if (!started) return;
+      const now = performance.now();
+
+      const sensorOk = now - lastMotion < 1000;
+      if (sensorOk) setStatus("stSensor", "ok", "Sensor: OK");
+      else if (now - startTime > 1500) setStatus("stSensor", "bad", "Sensor: SEM DADOS");
+      else setStatus("stSensor", "wait", "Sensor: aguardando...");
+
+      if (server === "ok") setStatus("stSrv", "ok", "Servidor: OK");
+      else if (server === "bad") setStatus("stSrv", "bad", "Servidor: sem resposta");
+      else setStatus("stSrv", "wait", "Servidor: ...");
+
+      $("dir").textContent = steer > 0.1 ? "DIREITA →" : steer < -0.1 ? "← ESQUERDA" : "RETO";
+      $("wheelRot").setAttribute("transform", "rotate(" + (steer * 45) + ")");
+      $("barMark").style.left = ((steer + 1) / 2 * 100) + "%";
+
+      $("vAccel").textContent =
+        "aceleração  x " + accel.x.toFixed(1) + "  y " + accel.y.toFixed(1) + "  z " + accel.z.toFixed(1);
+      $("vGyro").textContent =
+        "giroscópio  α " + rot.alpha.toFixed(0) + "  β " + rot.beta.toFixed(0) + "  γ " + rot.gamma.toFixed(0) + " °/s";
+      $("vAngle").textContent =
+        "ângulo " + (angle - offset).toFixed(0) + "°   steer " + steer.toFixed(2);
+
+      let hint = "";
+      if (!sensorOk && now - startTime > 1500) {
+        hint = "Sem dados do sensor. Confira se abriu por https://, se aceitou a permissão e se o celular tem giroscópio.";
+      } else if (sensorOk && Math.abs(accel.x) < 4) {
+        hint = "Segure o celular deitado (paisagem), como um volante.";
+      }
+      $("hint").textContent = hint;
+    }
+    requestAnimationFrame(render);
+  </script>
+</body>
+
+</html>
